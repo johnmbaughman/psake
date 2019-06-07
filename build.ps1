@@ -2,19 +2,37 @@
 
 [cmdletbinding()]
 param(
+    # Build task(s) to execute
     [validateSet('Test', 'Analyze', 'Pester', 'Clean', 'Build', 'CreateMarkdownHelp', 'BuildNuget', 'PublishChocolatey', 'PublishPSGallery')]
-    [string]$Task = 'Test'
+    [string]$Task = 'Test',
+
+    # Bootstrap dependencies
+    [switch]$Bootstrap
 )
 
-$sut = Join-Path -Path $PSScriptRoot -ChildPath 'src'
-$manifestPath = Join-Path -Path $sut -ChildPath 'psake.psd1'
-$version = (Import-PowerShellDataFile -Path $manifestPath).ModuleVersion
-$outputDir = Join-Path -Path $PSScriptRoot -ChildPath $version
+$sut             = Join-Path -Path $PSScriptRoot    -ChildPath 'src'
+$manifestPath    = Join-Path -Path $sut             -ChildPath 'psake.psd1'
+$version         = (Import-PowerShellDataFile       -Path $manifestPath).ModuleVersion
+$outputDir       = Join-Path -Path $PSScriptRoot    -ChildPath 'output'
+$outputModDir    = Join-Path -Path $outputDir       -ChildPath 'psake'
+$outputModVerDir = Join-Path -Path $outputModDir    -ChildPath $version
+$outputManifest  = Join-Path -Path $outputModVerDir -ChildPath 'psake.psd1'
+$testResultsPath = Join-Path -Path $outputDir       -ChildPath testResults.xml
 
 $PSDefaultParameterValues = @{
     'Get-Module:Verbose'    = $false
     'Remove-Module:Verbose' = $false
     'Import-Module:Verbose' = $false
+}
+
+if ($Bootstrap) {
+    Get-PackageProvider -Name Nuget -ForceBootstrap > $null
+    Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+    if (-not (Get-Module -Name PSDepend -ListAvailable)) {
+        Install-Module -Name PSDepend -Repository PSGallery -Scope CurrentUser -Force
+    }
+    Import-Module -Name PSDepend -Verbose:$false
+    Invoke-PSDepend -Path './requirements.psd1' -Install -Import -Force -WarningAction SilentlyContinue
 }
 
 # Taken with love from Jaykul @ https://gist.github.com/Jaykul/e0c08be051bed56d62474ae12b9b1b8a
@@ -106,29 +124,11 @@ function Init {
     [cmdletbinding()]
     param()
 
-    $psGallery = Get-PSRepository -Name PSGallery
-    if ($psGallery.InstallationPolicy -ne 'Trusted') {
-        Get-PackageProvider -Name Nuget -ForceBootstrap -Verbose:$false | Out-Null
-        Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -Verbose:$false
-    }
-
-    # Build/test dependencies
-    @(
-        @{ ModuleName = 'Pester';           ModuleVersion = '4.1.0' }
-        @{ ModuleName = 'PlatyPS';          ModuleVersion = '0.8.3' }
-        @{ ModuleName = 'PSScriptAnalyzer'; ModuleVersion = '1.16.1' }
-    ) | Foreach-Object {
-        if (-not (Get-Module -FullyQualifiedName $_ -ListAvailable)) {
-            Install-Module -Name $_.ModuleName -RequiredVersion $_.ModuleVersion -Force -AllowClobber -Scope CurrentUser -ErrorAction Stop
-        }
-        Import-Module -FullyQualifiedName $_
-    }
-
     Remove-Module -Name psake -Force -ErrorAction SilentlyContinue
 }
 
 function Test {
-    [DependsOn(('Analyze', 'Pester'))]
+    [DependsOn(('Build', 'Analyze', 'Pester'))]
     [cmdletbinding()]
     param()
     ''
@@ -140,7 +140,7 @@ function Analyze {
     param()
 
     $analysis = Invoke-ScriptAnalyzer -Path $sut -Recurse -Verbose:$false
-    $errors = $analysis | Where-Object {$_.Severity -eq 'Error'}
+    $errors   = $analysis | Where-Object {$_.Severity -eq 'Error'}
     $warnings = $analysis | Where-Object {$_.Severity -eq 'Warning'}
 
     if (($errors.Count -eq 0) -and ($warnings.Count -eq 0)) {
@@ -167,9 +167,8 @@ function Pester {
         . "$PSScriptRoot/build/travis.ps1"
     }
 
-    Import-Module -Name $manifestPath
+    Import-Module -Name $outputManifest -Force
 
-    $testResultsPath = "$PSScriptRoot/testResults.xml"
     $pesterParams = @{
         Path         = './tests'
         OutputFile   = $testResultsPath
@@ -181,12 +180,6 @@ function Pester {
     }
     $testResults = Invoke-Pester @pesterParams
 
-    # Upload test artifacts to AppVeyor
-    if ($env:APPVEYOR_JOB_ID) {
-        $wc = New-Object 'System.Net.WebClient'
-        $wc.UploadFile("https://ci.appveyor.com/api/testresults/nunit/$($env:APPVEYOR_JOB_ID)", $testResultsPath)
-    }
-
     if ($testResults.FailedCount -gt 0) {
         throw "$($testResults.FailedCount) tests failed!"
     }
@@ -197,8 +190,8 @@ function Clean {
     [cmdletbinding()]
     param()
 
-    if (Test-Path -Path $outputDir) {
-        Remove-Item -Path $outputDir -Recurse -Force
+    if (Test-Path -Path $outputModVerDir) {
+        Remove-Item -Path $outputModVerDir -Recurse -Force > $null
     }
 }
 
@@ -207,9 +200,12 @@ function Build {
     [cmdletbinding()]
     param()
 
-    New-Item -Path $outputDir -ItemType Directory > $null
-    Copy-Item -Path (Join-Path -Path $sut -ChildPath *) -Destination $outputDir -Recurse
-    Copy-Item -Path (Join-Path -Path $PSScriptRoot -ChildPath 'examples') -Destination $outputDir -Recurse
+    if (-not (Test-Path -Path $outputDir)) {
+        New-Item -Path $outputDir -ItemType Directory > $null
+    }
+    New-Item -Path $outputModVerDir -ItemType Directory > $null
+    Copy-Item -Path (Join-Path -Path $sut -ChildPath *) -Destination $outputModVerDir -Recurse
+    Copy-Item -Path (Join-Path -Path $PSScriptRoot -ChildPath 'examples') -Destination $outputModVerDir -Recurse
 }
 
 function CreateMarkdownHelp {
@@ -245,8 +241,8 @@ function BuildNuget {
     $destTools = Join-Path -Path $dest -ChildPath tools
 
     Copy-Item -Recurse -Path "$here/build/nuget" -Destination $dest -Exclude 'nuget.exe'
-    Copy-Item -Recurse -Path "$outputDir" -Destination "$destTools/psake"
-    @('README.md', 'license.txt') | Foreach-Object {
+    Copy-Item -Recurse -Path "$outputModVerDir" -Destination "$destTools/psake"
+    @('README.md', 'license') | Foreach-Object {
         Copy-Item -Path "$here/$_" -Destination $destTools
     }
 

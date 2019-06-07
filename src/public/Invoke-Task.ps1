@@ -47,12 +47,12 @@ function Invoke-Task {
 
     $taskKey = $taskName.ToLower()
 
+    $currentContext = $psake.context.Peek()
+
     if ($currentContext.aliases.Contains($taskKey)) {
         $taskName = $currentContext.aliases.$taskKey.Name
         $taskKey = $taskName.ToLower()
     }
-
-    $currentContext = $psake.context.Peek()
 
     Assert ($currentContext.tasks.Contains($taskKey)) ($msgs.error_task_name_does_not_exist -f $taskName)
 
@@ -77,17 +77,18 @@ function Invoke-Task {
 
             if ($task.Action) {
 
-                $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+                $stopwatch = new-object System.Diagnostics.Stopwatch
 
                 try {
                     foreach($childTask in $task.DependsOn) {
                         Invoke-Task $childTask
                     }
+                    $stopwatch.Start()
 
                     $currentContext.currentTaskName = $taskName
 
                     try {
-                        & $currentContext.taskSetupScriptBlock
+                        & $currentContext.taskSetupScriptBlock @($task)
                         try {
                             if ($task.PreAction) {
                                 & $task.PreAction
@@ -110,14 +111,25 @@ function Invoke-Task {
                                 & $task.PostAction
                             }
                         }
+                    } catch {
+                        # want to catch errors here _before_ we invoke TaskTearDown
+                        # so that TaskTearDown reliably gets the Task-scoped
+                        # success/fail/error context.
+                        $task.Success        = $false
+                        $task.ErrorMessage   = $_
+                        $task.ErrorDetail    = $_ | Out-String
+                        $task.ErrorFormatted = FormatErrorMessage $_
+
+                        throw $_ # pass this up the chain; cleanup is handled higher int he stack
                     } finally {
-                        & $currentContext.taskTearDownScriptBlock
+                        & $currentContext.taskTearDownScriptBlock $task
                     }
                 } catch {
                     if ($task.ContinueOnError) {
                         "-"*70
                         WriteColoredOutput ($msgs.continue_on_error -f $taskName,$_) -foregroundcolor Yellow
                         "-"*70
+                        [void]$currentContext.callStack.Pop()
                     }  else {
                         throw $_
                     }

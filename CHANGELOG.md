@@ -5,7 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [vNext] Unreleased
+## [4.8.1] Unreleased
+
+### Fixed
+
+- Fix hashtable references so strict mode works when set in the psakeFile.
+
+### Added
+
+- [**#281**](https://github.com/psake/psake/pull/281) Support for .Net 4.8 in `Framework` function (via [@granit1986](https://github.com/granit1986))
+
+## [4.8.0] 2019-04-23
+
+### Features
+
+- Add support for loading in tasks contained in PowerShell modules
+
+### Improvements
+
+- [**#267**](https://github.com/psake/psake/pull/267) Add wrapper script for Linux and macOS. (via [@dermeister0](https://github.com/dermeister0))
+
+- [**#268**](https://github.com/psake/psake/pull/268) Allow more granularity when specifying versions of modules to load when referencing shared tasks (via [@RandomNoun7](https://github.com/RandomNoun7))
+
+- [**#274**](https://github.com/psake/psake/pull/274) Add support for Visual Studio 2019 and MSBuild 16.0. (via [@petedavis](https://github.com/petedavis))
+
+- [**#276**](https://github.com/psake/psake/pull/276) Pass task detail including error information into TaskSetup and TaskTearDown. (via [@davidalpert](https://github.com/davidalpert))
+
+### Fixed
+
+- [**#272**](https://github.com/psake/psake/pull/272) Improve parameter initialization error handling to include the parameter name which caused failure (via [@GreatTeacherBasshead](https://github.com/GreatTeacherBasshead))
+
+## [4.7.4] 2018-09-07
+
+### Fixed
+
+- [**#260**](https://github.com/psake/psake/pull/260) Change the build time report to show individual task durations instead of cumulative (via [@sideproject](https://github.com/sideproject))
+
+- [**#261**](https://github.com/psake/psake/pull/261) Use `$global:lastexitcode` instead of `$lastexitcode` in Exec (via [@gpetrou](https://github.com/gpetrou))
+
+### Improvements
+
+- [**#259**](https://github.com/psake/psake/pull/259) Add $psake.error_message property which contains the error message that cause the build to fail (via [@sideproject](https://github.com/sideproject))
+
+## [4.7.3] 2018-08-11
+
+### Fixed
+
+- Re-apply changes from PR #257 as they apparently were not committed correctly.
+
+## [4.7.2] 2018-08-09
+
+### Improvements
+
+- [**#257**](https://github.com/psake/psake/pull/257) Add support for .Net 4.7.2 (via [@dawoodmm](https://github.com/dawoodmm))
+
+## [4.7.1] 2018-07-03
 
 ### Improvements
 
@@ -14,7 +68,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Fixed
 
-- [**#236**](https://github.com/psake/psake/pull/236) Change check for `$IsWindows` so it doesn't genereate an error record (via [@rkeithhill](https://github.com/rkeithhill))
+- [**#236**](https://github.com/psake/psake/pull/236) Change check for `$IsWindows` so it doesn't generate an error record (via [@rkeithhill](https://github.com/rkeithhill))
 
 ## [4.7.0] 2017-11-21
 
