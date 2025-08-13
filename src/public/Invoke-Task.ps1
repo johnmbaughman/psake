@@ -1,158 +1,165 @@
 function Invoke-Task {
     <#
-        .SYNOPSIS
-        Executes another task in the current build script.
+    .SYNOPSIS
+    Executes another task in the current build script.
 
-        .DESCRIPTION
-        This is a function that will allow you to invoke a Task from within another Task in the current build script.
+    .DESCRIPTION
+    This is a function that will allow you to invoke a Task from within another Task in the current build script.
 
-        .PARAMETER taskName
-        The name of the task to execute.
+    .PARAMETER TaskName
+    The name of the task to execute.
 
-        .EXAMPLE
-        Invoke-Task "Compile"
+    .EXAMPLE
+    Invoke-Task "Compile"
 
-        This example calls the "Compile" task.
+    This example calls the "Compile" task.
 
-        .LINK
-        Assert
-        .LINK
-        Exec
-        .LINK
-        FormatTaskName
-        .LINK
-        Framework
-        .LINK
-        Get-PSakeScriptTasks
-        .LINK
-        Include
-        .LINK
-        Invoke-psake
-        .LINK
-        Properties
-        .LINK
-        Task
-        .LINK
-        TaskSetup
-        .LINK
-        TaskTearDown
+    .LINK
+    Assert
+    .LINK
+    Exec
+    .LINK
+    FormatTaskName
+    .LINK
+    Framework
+    .LINK
+    Get-PSakeScriptTasks
+    .LINK
+    Include
+    .LINK
+    Invoke-psake
+    .LINK
+    Properties
+    .LINK
+    Task
+    .LINK
+    TaskSetup
+    .LINK
+    TaskTearDown
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [string]$taskName
+        [string]
+        $TaskName
     )
 
-    Assert $taskName ($msgs.error_invalid_task_name)
+    Assert $TaskName ($msgs.error_invalid_task_name)
 
-    $taskKey = $taskName.ToLower()
+    $taskKey = $TaskName.ToLower()
 
-    $currentContext = $psake.context.Peek()
+    $currentContext = $psake.Context.Peek()
 
     if ($currentContext.aliases.Contains($taskKey)) {
-        $taskName = $currentContext.aliases.$taskKey.Name
-        $taskKey = $taskName.ToLower()
+        $TaskName = $currentContext.aliases.$taskKey.Name
+        $taskKey = $TaskName.ToLower()
     }
 
-    Assert ($currentContext.tasks.Contains($taskKey)) ($msgs.error_task_name_does_not_exist -f $taskName)
+    Assert ($currentContext.tasks.Contains($taskKey)) ($msgs.error_task_name_does_not_exist -f $TaskName)
 
-    if ($currentContext.executedTasks.Contains($taskKey))  { return }
+    if ($currentContext.executedTasks.Contains($taskKey)) { return }
 
-    Assert (!$currentContext.callStack.Contains($taskKey)) ($msgs.error_circular_reference -f $taskName)
+    Assert (!$currentContext.callStack.Contains($taskKey)) ($msgs.error_circular_reference -f $TaskName)
 
     $currentContext.callStack.Push($taskKey)
 
-    $task = $currentContext.tasks.$taskKey
+    try {
 
-    $precondition_is_valid = & $task.Precondition
+        $task = $currentContext.tasks.$taskKey
 
-    if (!$precondition_is_valid) {
-        WriteColoredOutput ($msgs.precondition_was_false -f $taskName) -foregroundcolor Cyan
-    } else {
-        if ($taskKey -ne 'default') {
+        $precondition_is_valid = & $task.Precondition
 
-            if ($task.PreAction -or $task.PostAction) {
-                Assert ($null -ne $task.Action) ($msgs.error_missing_action_parameter -f $taskName)
-            }
+        if (!$precondition_is_valid) {
+            Write-PsakeOutput ($msgs.precondition_was_false -f $TaskName) "heading"
+        } else {
+            if ($taskKey -ne 'default') {
 
-            if ($task.Action) {
+                if ($task.PreAction -or $task.PostAction) {
+                    Assert ($null -ne $task.Action) ($msgs.error_missing_action_parameter -f $TaskName)
+                }
 
-                $stopwatch = new-object System.Diagnostics.Stopwatch
+                foreach ($variable in $task.requiredVariables) {
+                    Assert ((Test-Path "variable:$variable") -and ($null -ne (Get-Variable $variable).Value)) ($msgs.required_variable_not_set -f $variable, $TaskName)
+                }
 
-                try {
-                    foreach($childTask in $task.DependsOn) {
-                        Invoke-Task $childTask
-                    }
-                    $stopwatch.Start()
+                if ($task.Action) {
 
-                    $currentContext.currentTaskName = $taskName
+                    $stopwatch = New-Object System.Diagnostics.Stopwatch
 
                     try {
-                        & $currentContext.taskSetupScriptBlock @($task)
+                        foreach ($childTask in $task.DependsOn) {
+                            Invoke-Task $childTask
+                        }
+                        $stopwatch.Start()
+
+                        $currentContext.currentTaskName = $TaskName
+
                         try {
-                            if ($task.PreAction) {
-                                & $task.PreAction
-                            }
+                            & $currentContext.taskSetupScriptBlock @($task)
+                            try {
+                                if ($task.PreAction) {
+                                    & $task.PreAction
+                                }
 
-                            if ($currentContext.config.taskNameFormat -is [ScriptBlock]) {
-                                $taskHeader = & $currentContext.config.taskNameFormat $taskName
-                            } else {
-                                $taskHeader = $currentContext.config.taskNameFormat -f $taskName
-                            }
-                            WriteColoredOutput $taskHeader -foregroundcolor Cyan
+                                if ($currentContext.config.taskNameFormat -is [ScriptBlock]) {
+                                    $taskHeader = & $currentContext.config.taskNameFormat $TaskName
+                                } else {
+                                    $taskHeader = $currentContext.config.taskNameFormat -f $TaskName
+                                }
+                                Write-PsakeOutput $taskHeader "heading"
 
-                            foreach ($variable in $task.requiredVariables) {
-                                Assert ((Test-Path "variable:$variable") -and ($null -ne (Get-Variable $variable).Value)) ($msgs.required_variable_not_set -f $variable, $taskName)
+                                & $task.Action
+                            } finally {
+                                if ($task.PostAction) {
+                                    & $task.PostAction
+                                }
                             }
+                        } catch {
+                            # want to catch errors here _before_ we invoke TaskTearDown
+                            # so that TaskTearDown reliably gets the Task-scoped
+                            # success/fail/error context.
+                            $task.Success = $false
+                            $task.ErrorMessage = $_
+                            $task.ErrorDetail = $_ | Out-String
+                            $task.ErrorFormatted = Format-ErrorMessage $_
 
-                            & $task.Action
+
+
+                            throw $_ # pass this up the chain; cleanup is handled higher int he stack
                         } finally {
-                            if ($task.PostAction) {
-                                & $task.PostAction
-                            }
+                            & $currentContext.taskTearDownScriptBlock $task
                         }
                     } catch {
-                        # want to catch errors here _before_ we invoke TaskTearDown
-                        # so that TaskTearDown reliably gets the Task-scoped
-                        # success/fail/error context.
-                        $task.Success        = $false
-                        $task.ErrorMessage   = $_
-                        $task.ErrorDetail    = $_ | Out-String
-                        $task.ErrorFormatted = FormatErrorMessage $_
-
-                        throw $_ # pass this up the chain; cleanup is handled higher int he stack
+                        if ($task.ContinueOnError) {
+                            "-" * 70
+                            Write-PsakeOutput ($msgs.continue_on_error -f $TaskName, $_) "warning"
+                            "-" * 70
+                        } else {
+                            throw $_
+                        }
                     } finally {
-                        & $currentContext.taskTearDownScriptBlock $task
+                        $task.Duration = $stopwatch.Elapsed
                     }
-                } catch {
-                    if ($task.ContinueOnError) {
-                        "-"*70
-                        WriteColoredOutput ($msgs.continue_on_error -f $taskName,$_) -foregroundcolor Yellow
-                        "-"*70
-                        [void]$currentContext.callStack.Pop()
-                    }  else {
-                        throw $_
+                } else {
+                    # no action was specified but we still execute all the dependencies
+                    foreach ($childTask in $task.DependsOn) {
+                        Invoke-Task $childTask
                     }
-                } finally {
-                    $task.Duration = $stopwatch.Elapsed
                 }
             } else {
-                # no action was specified but we still execute all the dependencies
-                foreach($childTask in $task.DependsOn) {
+                foreach ($childTask in $task.DependsOn) {
                     Invoke-Task $childTask
                 }
             }
-        } else {
-            foreach($childTask in $task.DependsOn) {
-                Invoke-Task $childTask
-            }
+
+            Assert (& $task.PostCondition) ($msgs.postcondition_failed -f $TaskName)
         }
-
-        Assert (& $task.Postcondition) ($msgs.postcondition_failed -f $taskName)
+    } catch {
+        throw $_
+    } finally {
+        $poppedTaskKey = $currentContext.callStack.Pop()
+        Assert ($poppedTaskKey -eq $taskKey) ($msgs.error_corrupt_callstack -f $taskKey, $poppedTaskKey)
     }
-
-    $poppedTaskKey = $currentContext.callStack.Pop()
-    Assert ($poppedTaskKey -eq $taskKey) ($msgs.error_corrupt_callstack -f $taskKey,$poppedTaskKey)
 
     $currentContext.executedTasks.Push($taskKey)
 }

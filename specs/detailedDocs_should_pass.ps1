@@ -3,8 +3,15 @@ Task default -depends CheckDetailedDocs
 
 Task CheckDetailedDocs {
     $NL = [System.Environment]::NewLine
+
+    if ($PSStyle) {
+        $origOutputRendering = $PSStyle.OutputRendering
+        $PSStyle.OutputRendering = 'PlainText'
+    }
+    $psake.ConfigDefault.OutputHandlers.Default = { Param($output) Write-Output $output }
+
     $docArray = @(Invoke-psake .\nested\docs.ps1 -detailedDocs -nologo | Out-String -Stream -Width 120)
-    $docString = (($docArray | Foreach-Object Trim) -join $NL).Trim()
+    $docString = (($docArray | ForEach-Object Trim) -join $NL).Trim()
 
     $expectedDoc = @"
 Name        : Compile
@@ -44,7 +51,11 @@ Depends On  :
 Default     :
 "@ -split $NL
 
-    $expectedDocString = (($expectedDoc | Foreach-Object Trim) -join $NL).Trim()
+    $expectedDocString = (($expectedDoc | ForEach-Object Trim) -join $NL).Trim()
+
+    if ($origOutputRendering) {
+        $PSStyle.OutputRendering = $origOutputRendering
+    }
 
     Assert ($docString -eq $expectedDocString) "Unexpected simple doc: $docString"
 }

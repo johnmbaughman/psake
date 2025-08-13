@@ -1,23 +1,34 @@
 #requires -Version 5.1
-
-[cmdletbinding()]
+[CmdletBinding()]
 param(
     # Build task(s) to execute
-    [validateSet('Test', 'Analyze', 'Pester', 'Clean', 'Build', 'CreateMarkdownHelp', 'BuildNuget', 'PublishChocolatey', 'PublishPSGallery')]
+    [ValidateSet(
+        'Test',
+        'Analyze',
+        'Pester',
+        'Clean',
+        'Build',
+        'ConvertFromLocalizationYaml',
+        'CreateMarkdownHelp',
+        'BuildNuget',
+        'PublishChocolatey',
+        'PublishNuget',
+        'PublishPSGallery'
+    )]
     [string]$Task = 'Test',
 
     # Bootstrap dependencies
     [switch]$Bootstrap
 )
 
-$sut             = Join-Path -Path $PSScriptRoot    -ChildPath 'src'
-$manifestPath    = Join-Path -Path $sut             -ChildPath 'psake.psd1'
-$version         = (Import-PowerShellDataFile       -Path $manifestPath).ModuleVersion
-$outputDir       = Join-Path -Path $PSScriptRoot    -ChildPath 'output'
-$outputModDir    = Join-Path -Path $outputDir       -ChildPath 'psake'
-$outputModVerDir = Join-Path -Path $outputModDir    -ChildPath $version
-$outputManifest  = Join-Path -Path $outputModVerDir -ChildPath 'psake.psd1'
-$testResultsPath = Join-Path -Path $outputDir       -ChildPath testResults.xml
+$sut = Join-Path -Path $PSScriptRoot -ChildPath 'src'
+$manifestPath = Join-Path -Path $sut -ChildPath 'psake.psd1'
+$version = (Import-PowerShellDataFile -Path $manifestPath).ModuleVersion
+$outputDir = Join-Path -Path $PSScriptRoot -ChildPath 'output'
+$outputNugetDir = Join-Path -Path $outputDir -ChildPath 'nuget'
+$outputModDir = Join-Path -Path $outputDir -ChildPath 'psake'
+$outputModVerDir = Join-Path -Path $outputModDir -ChildPath $version
+$outputManifest = Join-Path -Path $outputModVerDir -ChildPath 'psake.psd1'
 
 $PSDefaultParameterValues = @{
     'Get-Module:Verbose'    = $false
@@ -45,37 +56,36 @@ class DependsOn : System.Attribute {
 }
 function Invoke-Step {
     <#
-        .Synopsis
-            Runs a command, taking care to run it's dependencies first
-        .Description
-            Invoke-Step supports the [DependsOn("...")] attribute to allow you to write tasks or build steps that take dependencies on other tasks completing first.
+    .Synopsis
+        Runs a command, taking care to run it's dependencies first
+    .Description
+        Invoke-Step supports the [DependsOn("...")] attribute to allow you to write tasks or build steps that take dependencies on other tasks completing first.
 
-            When you invoke a step, dependencies are run first, recursively. The algorithm for this is depth-first and *very* naive. Don't build cycles!
-       .Example
-            function init {
-                param()
-                Write-Information "INITIALIZING build variables"
-            }
+        When you invoke a step, dependencies are run first, recursively. The algorithm for this is depth-first and *very* naive. Don't build cycles!
+    .Example
+        function init {
+            param()
+            Write-Information "INITIALIZING build variables"
+        }
 
-            function update {
-                [DependsOn("init")]param()
-                Write-Information "UPDATING dependencies"
-            }
+        function update {
+            [DependsOn("init")]param()
+            Write-Information "UPDATING dependencies"
+        }
 
-            function build {
-                [DependsOn(("update","init"))]param()
-                Write-Information "BUILDING: $ModuleName from $Path"
-            }
+        function build {
+            [DependsOn(("update","init"))]param()
+            Write-Information "BUILDING: $ModuleName from $Path"
+        }
 
-            Invoke-Step build -InformationAction continue
+        Invoke-Step build -InformationAction continue
 
-            Defines three steps with dependencies, and invokes the "build" step.
-            Results in this output:
+        Defines three steps with dependencies, and invokes the "build" step.
+        Results in this output:
 
-            Invoking Step: init
-            Invoking Step: update
-            Invoking Step: build
-
+        Invoking Step: init
+        Invoking Step: update
+        Invoking Step: build
     #>
     [CmdletBinding()]
     param(
@@ -98,7 +108,7 @@ function Invoke-Step {
     end {
         if ($stepCommand = Get-Command -Name $Step -CommandType Function) {
 
-            $dependencies = $stepCommand.ScriptBlock.Attributes.Where{$_.TypeId.Name -eq 'DependsOn'}.Name
+            $dependencies = $stepCommand.ScriptBlock.Attributes.Where{ $_.TypeId.Name -eq 'DependsOn' }.Name
             foreach ($dependency in $dependencies) {
                 if ($dependency -notin $script:InvokedSteps) {
                     Invoke-Step -Step $dependency
@@ -121,27 +131,28 @@ function Invoke-Step {
 }
 
 function Init {
-    [cmdletbinding()]
+    [CmdletBinding()]
     param()
 
     Remove-Module -Name psake -Force -ErrorAction SilentlyContinue
+    Set-BuildEnvironment -Force
 }
 
 function Test {
     [DependsOn(('Build', 'Analyze', 'Pester'))]
-    [cmdletbinding()]
+    [CmdletBinding()]
     param()
     ''
 }
 
 function Analyze {
     [DependsOn('Init')]
-    [cmdletbinding()]
+    [CmdletBinding()]
     param()
 
     $analysis = Invoke-ScriptAnalyzer -Path $sut -Recurse -Verbose:$false
-    $errors   = $analysis | Where-Object {$_.Severity -eq 'Error'}
-    $warnings = $analysis | Where-Object {$_.Severity -eq 'Warning'}
+    $errors = $analysis | Where-Object { $_.Severity -eq 'Error' }
+    $warnings = $analysis | Where-Object { $_.Severity -eq 'Warning' }
 
     if (($errors.Count -eq 0) -and ($warnings.Count -eq 0)) {
         'PSScriptAnalyzer passed without errors or warnings'
@@ -160,23 +171,15 @@ function Analyze {
 
 function Pester {
     [DependsOn('Init')]
-    [cmdletbinding()]
+    [CmdletBinding()]
     param()
-
-    if ($env:TRAVIS) {
-        . "$PSScriptRoot/build/travis.ps1"
-    }
 
     Import-Module -Name $outputManifest -Force
 
     $pesterParams = @{
-        Path         = './tests'
-        OutputFile   = $testResultsPath
-        OutputFormat = 'NUnitXml'
-        PassThru     = $true
-        PesterOption = @{
-            IncludeVSCodeMarker = $true
-        }
+        Path     = './tests'
+        Output   = 'Detailed'
+        PassThru = $true
     }
     $testResults = Invoke-Pester @pesterParams
 
@@ -187,7 +190,7 @@ function Pester {
 
 function Clean {
     [DependsOn('Init')]
-    [cmdletbinding()]
+    [CmdletBinding()]
     param()
 
     if (Test-Path -Path $outputModVerDir) {
@@ -197,7 +200,7 @@ function Clean {
 
 function Build {
     [DependsOn('Clean')]
-    [cmdletbinding()]
+    [CmdletBinding()]
     param()
 
     if (-not (Test-Path -Path $outputDir)) {
@@ -210,7 +213,7 @@ function Build {
 
 function CreateMarkdownHelp {
     [DependsOn('Init')]
-    [cmdletbinding()]
+    [CmdletBinding()]
     param()
 
     $mdHelpPath = "$PSScriptRoot/docs/reference/functions"
@@ -219,22 +222,22 @@ function CreateMarkdownHelp {
 
 function UpdateMarkdownHelp {
     [DependsOn('Init')]
-    [cmdletbinding()]
+    [CmdletBinding()]
     param()
 
     'TODO'
 }
 
-function BuildNuget {
+function StageNuget {
     [DependsOn('Build')]
-    [cmdletbinding()]
+    [CmdletBinding()]
     param()
 
     $here = $PSScriptRoot
 
-    "Building nuget package version [$version]"
+    "Staging Nuget Files"
 
-    $dest = Join-Path -Path $PSScriptRoot -ChildPath bin
+    $dest = $outputNugetDir
     if (Test-Path -Path $dest -PathType Container) {
         Remove-Item -Path $dest -Recurse -Force
     }
@@ -242,27 +245,147 @@ function BuildNuget {
 
     Copy-Item -Recurse -Path "$here/build/nuget" -Destination $dest -Exclude 'nuget.exe'
     Copy-Item -Recurse -Path "$outputModVerDir" -Destination "$destTools/psake"
-    @('README.md', 'license') | Foreach-Object {
+    @('README.md', 'license') | ForEach-Object {
         Copy-Item -Path "$here/$_" -Destination $destTools
     }
 
-    & "$here/build/nuget/nuget.exe" pack "$dest/psake.nuspec" -Verbosity quiet -Version $version
+    "Updating nuspec version"
+    $specPath = "$dest\psake.nuspec"
+    $spec = [xml](Get-Content -Raw $specPath)
+    $spec.package.metadata.version = $version
+    $spec.Save($specPath)
 }
 
 function PublishChocolatey {
-    [DependsOn('Init')]
-    [cmdletbinding()]
+    [DependsOn('StageNuget')]
+    [CmdletBinding()]
     param()
 
-    'TODO'
+    try {
+        Push-Location $outputNugetDir
+        choco pack
+        if ($null -eq $(choco apikey list -r)) {
+            throw "No Choco API key is set! Not publishing choco package."
+        }
+        choco push --source "'https://push.chocolatey.org/'"
+    } finally {
+        Pop-Location
+    }
+}
+
+function PublishNuget {
+    [DependsOn('StageNuget')]
+    [CmdletBinding()]
+    param()
+
+    "Building nuget package version [$version]"
+    $nugetInPath = Get-Command 'nuget' -ErrorAction 'SilentlyContinue'
+    if (-not $nugetInPath) {
+        Write-Warning "Nuget not detected in path. Using local copy..."
+        $nugetBin = Resolve-Path "$PSScriptRoot\build\nuget\NuGet.exe"
+    } else {
+        $nugetBin = $nugetInPath.Source
+    }
+    Write-Verbose "Using nuget at $nugetBin"
+    try {
+        Push-Location $outputNugetDir
+        & $nugetBin pack "./psake.nuspec" -Verbosity quiet -Version $version -Properties NoWarn='NU5111,NU5125'
+        $nupkg = (Get-ChildItem "psake*.nupkg").Name
+        if ($null -eq $ENV:NUGET_API_KEY) {
+            throw 'Nuget API is not set! Not publishing.'
+        }
+        & $nugetBin push $nupkg --api-key $ENV:NUGET_API_KEY --source https://api.nuget.org/v3/index.json
+    } finally {
+        Pop-Location
+    }
 }
 
 function PublishPSGallery {
-    [DependsOn('Init')]
-    [cmdletbinding()]
+    [DependsOn('Build')]
+    [CmdletBinding()]
     param()
 
-    'TODO'
+    "Publishing version [$Version] to PSGallery.."
+    if ($null -eq $env:PSGALLERY_API_KEY) {
+        throw 'PSGallery API is not set! Not publishing.'
+    }
+    $publishParams = @{
+        Path        = $outputModVerDir
+        Repository  = 'PSGallery'
+        Verbose     = $VerbosePreference
+        NuGetApiKey = $env:PSGALLERY_API_KEY
+    }
+
+    Publish-Module @publishParams
+}
+
+function ConvertFromLocalizationYaml {
+    [DependsOn('Init')]
+    [CmdletBinding()]
+    param()
+
+    $languages = Get-ChildItem -Path "$PSScriptRoot\l10n" -Filter '*.yml' -File
+
+    foreach ($lang in $languages) {
+        $yaml = Get-Content -Path $lang.FullName -Raw | ConvertFrom-Yaml
+
+        foreach ($locale in $yaml.Keys) {
+            Write-Verbose "Processing locale: $locale"
+            $localeDir = Join-Path -Path $sut -ChildPath $locale
+            if (-not (Test-Path -Path $localeDir)) {
+                New-Item -Path $localeDir -ItemType Directory > $null
+            }
+
+            $psd1 = Join-Path -Path $localeDir -ChildPath "Messages.psd1"
+            $content = [System.Text.StringBuilder]::new()
+
+            $warningMessage = "# This file is auto-generated from YAML localization files. Do not edit manually."
+
+            [void]$content.AppendLine($warningMessage)
+            [void]$content.AppendLine("ConvertFrom-StringData @'")
+            foreach ($key in $yaml[$locale].Keys) {
+                Write-Verbose "Processing key: $key"
+                # We don't need to worry about escaping here, as the keys are simple strings
+                # and the values are already escaped by ConvertFrom-Yaml
+                $value = $yaml[$locale][$key]
+                [void]$content.AppendLine("    $key=$value")
+            }
+            [void]$content.AppendLine("'@")
+            Write-Verbose "Writing to $psd1"
+            Set-Content -Path $psd1 -Encoding UTF8 -Value $content.ToString()
+
+            # Due to a pwsh bug we need to keep a copy in the PSM1 file
+            if ($locale -eq 'en-US') {
+                $psm1 = Join-Path -Path $sut -ChildPath 'psake.psm1'
+                # Also copy the en-US messages to the psm1 file
+                $Tokens = $null
+                $Errors = $null
+                $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+                    $psm1,
+                    [ref]$Tokens,
+                    [ref]$Errors
+                )
+
+                # find the data block and replace it
+                $dataBlock = $ast.Find({ param($ast) $ast -is [System.Management.Automation.Language.DataStatementAst] }, $false)
+                # dataBlock.Extent will give us the range of the data block
+                if ($dataBlock) {
+                    Write-Verbose "Updating data block in psake.psm1 with en-US messages"
+                    # Remove the first line which is the comment
+                    [void]$content.Remove(0, $warningMessage.Length + 1)
+                    $dataBlockContent = $content.ToString()
+                    $dataBlockExtent = $dataBlock.Body.Extent
+                    # WARNING: Be careful with the offsets, as they are 0-based and the content is UTF8 encoded
+                    $newContent = $ast.Extent.Text.Substring(0, $dataBlockExtent.StartOffset + 1) + $dataBlockContent + $ast.Extent.Text.Substring($dataBlockExtent.EndOffset - 1)
+                    # Remove extra new line at the end
+                    $newContent = $newContent.TrimEnd("`r`n")
+                    Set-Content -Path $psm1 -Value $newContent -Encoding UTF8
+                } else {
+                    Write-Warning "No data block found in psake.psm1 to update with en-US messages."
+                }
+            }
+        }
+    }
 }
 
 try {
@@ -270,6 +393,7 @@ try {
     Invoke-Step $Task
 } catch {
     throw $_
+    exit 1
 } finally {
     Pop-Location
 }

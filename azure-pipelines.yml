@@ -1,7 +1,7 @@
 jobs:
-  - job: build_powerShell_win2016
+  - job: powershell_win2022
     pool:
-      vmImage: vs2017-win2016
+      vmImage: windows-2022
     steps:
     - powershell: ./build.ps1 -Task Test -Bootstrap -Verbose
       displayName: 'Build and Test'
@@ -9,12 +9,12 @@ jobs:
       inputs:
         testRunner: 'NUnit'
         testResultsFiles: '**/output/testResults.xml'
-        testRunTitle: 'PS_Win2016'
+        testRunTitle: 'PS_Win2022'
       displayName: 'Publish Test Results'
 
-  - job: build_pwsh_win2016
+  - job: pwsh_win2022
     pool:
-      vmImage: vs2017-win2016
+      vmImage: windows-2022
     steps:
     - pwsh: ./build.ps1 -Task Test -Bootstrap -Verbose
       displayName: 'Build and Test'
@@ -22,10 +22,10 @@ jobs:
       inputs:
         testRunner: 'NUnit'
         testResultsFiles: '**/output/testResults.xml'
-        testRunTitle: 'PS_Win2016'
+        testRunTitle: 'PS_Win2022'
       displayName: 'Publish Test Results'
 
-  - job: build_powershell_win2019
+  - job: powershell_win2019
     pool:
       vmImage: windows-2019
     steps:
@@ -35,10 +35,10 @@ jobs:
       inputs:
         testRunner: 'NUnit'
         testResultsFiles: '**/output/testResults.xml'
-        testRunTitle: 'PS_Win2016'
+        testRunTitle: 'PS_Win2019'
       displayName: 'Publish Test Results'
 
-  - job: build_pwsh_win2019
+  - job: pwsh_win2019
     pool:
       vmImage: windows-2019
     steps:
@@ -48,12 +48,12 @@ jobs:
       inputs:
         testRunner: 'NUnit'
         testResultsFiles: '**/output/testResults.xml'
-        testRunTitle: 'PS_Win2016'
+        testRunTitle: 'PS_Win2019'
       displayName: 'Publish Test Results'
 
-  - job: build_pwsh_ubuntu1604
+  - job: pwsh_ubuntu
     pool:
-      vmImage: ubuntu-16.04
+      vmImage: ubuntu-latest
     steps:
     - pwsh: ./build.ps1 -Task Test -Bootstrap -Verbose
       displayName: 'Build and Test'
@@ -61,12 +61,12 @@ jobs:
       inputs:
         testRunner: 'NUnit'
         testResultsFiles: '**/output/testResults.xml'
-        testRunTitle: 'PSCore_Ubuntu1604'
+        testRunTitle: 'PSCore_Ubuntu'
       displayName: 'Publish Test Results'
 
-  - job: build_pwsh_macos1013
+  - job: pwsh_macos
     pool:
-      vmImage: macOS-10.13
+      vmImage: macOS-latest
     steps:
     - pwsh: ./build.ps1 -Task Test -Bootstrap -Verbose
       displayName: 'Build and Test'
@@ -74,5 +74,5 @@ jobs:
       inputs:
         testRunner: 'NUnit'
         testResultsFiles: '**/output/testResults.xml'
-        testRunTitle: 'PSCore_MacOS1013'
+        testRunTitle: 'PSCore_MacOS'
       displayName: 'Publish Test Results'

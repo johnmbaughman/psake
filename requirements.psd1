@@ -3,8 +3,8 @@
         Target     = 'CurrentUser'
         Repository = 'PSGallery'
     }
-    BuildHelpers     = '2.0.8'
-    Pester           = '4.7.3'
-    PlatyPS          = '0.13.0'
-    PSScriptAnalyzer = '1.18.0'
+    BuildHelpers     = '2.0.16'
+    Pester           = '5.6.1'
+    PlatyPS          = '0.14.1'
+    PSScriptAnalyzer = '1.19.1'
 }

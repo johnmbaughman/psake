@@ -6,11 +6,11 @@ function Get-PSakeScriptTasks {
     .DESCRIPTION
     Returns meta data about all the tasks defined in the provided psake script.
 
-    .PARAMETER buildFile
+    .PARAMETER BuildFile
     The path to the psake build script to read the tasks from.
 
     .EXAMPLE
-    PS C:\>Get-PSakeScriptTasks -buildFile '.\build.ps1'
+    PS C:\>Get-PSakeScriptTasks -BuildFile '.\build.ps1'
 
     DependsOn        Alias Name    Description
     ---------        ----- ----    -----------
@@ -27,19 +27,20 @@ function Get-PSakeScriptTasks {
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseSingularNouns', '')]
     [CmdletBinding()]
     param(
-        [string]$buildFile
+        [string]
+        $BuildFile
     )
 
-    if (-not $buildFile) {
-        $buildFile = $psake.config_default.buildFileName
+    if (-not $BuildFile) {
+        $BuildFile = $psake.ConfigDefault.BuildFileName
     }
 
     try {
-        ExecuteInBuildFileScope $buildFile $MyInvocation.MyCommand.Module {
-            param($currentContext, $module)
-            return GetTasksFromContext $currentContext
+        Invoke-InBuildFileScope -BuildFile $BuildFile -Module $MyInvocation.MyCommand.Module -ScriptBlock {
+            param($CurrentContext)
+            return Get-TasksFromContext -CurrentContext $CurrentContext
         }
     } finally {
-        CleanupEnvironment
+        Restore-Environment
     }
 }
